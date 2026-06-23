@@ -1,13 +1,13 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
-const dgram = require('dgram')
 const { WebSocketServer, WebSocket } = require('ws')
 const os = require('os')
 const fs = require('fs')
 const http = require('http')
+const { Bonjour } = require('bonjour-service')
 
-const UDP_PORT = 53317
 const WS_PORT = 53318
+const bonjour = new Bonjour()
 
 function getLocalIP() {
   const interfaces = os.networkInterfaces()
@@ -19,44 +19,33 @@ function getLocalIP() {
   return '127.0.0.1'
 }
 
-function startUDPServer(win) {
-  const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
-
-  socket.on('message', (msg, rinfo) => {
-    try {
-      const data = JSON.parse(msg.toString())
-      if (data.type === 'beacon') {
-        win.webContents.send('device-found', {
-          alias: data.alias,
-          ip: rinfo.address,
-          deviceType: data.deviceType
-        })
-      }
-    } catch (e) {}
+function startMDNS() {
+  bonjour.publish({
+    name: os.hostname(),
+    type: 'localsend',
+    port: WS_PORT,
+    txt: { alias: os.hostname(), deviceType: 'desktop' }
   })
-
-  socket.bind(UDP_PORT, () => {
-    socket.setBroadcast(true)
-    console.log('UDP escuchando en', UDP_PORT)
-  })
-
-  setInterval(() => {
-    const beacon = JSON.stringify({
-      type: 'beacon',
-      alias: os.hostname(),
-      deviceType: 'desktop',
-      ip: getLocalIP()
-    })
-    const buf = Buffer.from(beacon)
-    socket.send(buf, 0, buf.length, UDP_PORT, '255.255.255.255')
-  }, 3000)
+  console.log('mDNS publicado:', os.hostname())
 }
 
 function startWSServer(win) {
   const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+
     if (req.url === '/ping') {
-      res.writeHead(200, { 'Access-Control-Allow-Origin': '*' })
+      res.writeHead(200)
       res.end('pong')
+    } else if (req.url === '/info') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        alias: os.hostname(),
+        deviceType: 'desktop',
+        ip: getLocalIP()
+      }))
+    } else {
+      res.writeHead(404)
+      res.end()
     }
   })
 
@@ -66,24 +55,36 @@ function startWSServer(win) {
     global.activeWS = ws
     let fileStream = null
     let fileInfo = null
+    let bytesReceived = 0
 
     ws.on('message', (data, isBinary) => {
       if (!isBinary) {
         const msg = JSON.parse(data.toString())
+
         if (msg.type === 'file-offer') {
           fileInfo = msg
           win.webContents.send('file-offer', msg)
         }
+
         if (msg.type === 'accepted') {
-          const savePath = path.join(os.homedir(), 'Downloads', fileInfo.fileName)
+          let savePath = path.join(os.homedir(), 'Downloads', fileInfo.fileName)
+
+          if (fs.existsSync(savePath)) {
+            const ext = path.extname(fileInfo.fileName)
+            const base = path.basename(fileInfo.fileName, ext)
+            savePath = path.join(os.homedir(), 'Downloads', `${base}_${Date.now()}${ext}`)
+          }
+
           fileStream = fs.createWriteStream(savePath)
+          bytesReceived = 0
           ws.send(JSON.stringify({ type: 'ready' }))
         }
       } else {
         if (fileStream) {
           fileStream.write(data)
+          bytesReceived += data.length
           win.webContents.send('file-progress', {
-            received: data.length,
+            received: bytesReceived,
             total: fileInfo?.fileSize
           })
         }
@@ -94,6 +95,15 @@ function startWSServer(win) {
       if (fileStream) {
         fileStream.end()
         win.webContents.send('file-complete')
+        fileStream = null
+      }
+    })
+
+    ws.on('error', (err) => {
+      console.error('WS error:', err)
+      if (fileStream) {
+        fileStream.destroy()
+        fileStream = null
       }
     })
   })
@@ -127,6 +137,10 @@ ipcMain.on('send-file', (event, { filePath, fileName, fileSize, targetIP }) => {
       stream.on('end', () => ws.close())
     }
   })
+
+  ws.on('error', (err) => {
+    console.error('Send error:', err)
+  })
 })
 
 function createWindow() {
@@ -147,11 +161,10 @@ function createWindow() {
   }
 
   try {
-    startUDPServer(win)
-    console.log('UDP OK')
     startWSServer(win)
     console.log('WS OK')
-  } catch(e) {
+    startMDNS()
+  } catch (e) {
     console.error('ERROR EN SERVIDORES:', e)
   }
 }
@@ -164,5 +177,6 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  bonjour.destroy()
   if (process.platform !== 'darwin') app.quit()
 })
