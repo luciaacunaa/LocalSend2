@@ -8,7 +8,6 @@ const http = require('http')
 
 const UDP_PORT = 53317
 const WS_PORT = 53318
-const HTTP_PORT = 53319
 
 function getLocalIP() {
   const interfaces = os.networkInterfaces()
@@ -54,7 +53,14 @@ function startUDPServer(win) {
 }
 
 function startWSServer(win) {
-  const wss = new WebSocketServer({ port: WS_PORT })
+  const server = http.createServer((req, res) => {
+    if (req.url === '/ping') {
+      res.writeHead(200, { 'Access-Control-Allow-Origin': '*' })
+      res.end('pong')
+    }
+  })
+
+  const wss = new WebSocketServer({ server })
 
   wss.on('connection', (ws) => {
     global.activeWS = ws
@@ -64,18 +70,15 @@ function startWSServer(win) {
     ws.on('message', (data, isBinary) => {
       if (!isBinary) {
         const msg = JSON.parse(data.toString())
-
         if (msg.type === 'file-offer') {
           fileInfo = msg
           win.webContents.send('file-offer', msg)
         }
-
         if (msg.type === 'accepted') {
           const savePath = path.join(os.homedir(), 'Downloads', fileInfo.fileName)
           fileStream = fs.createWriteStream(savePath)
           ws.send(JSON.stringify({ type: 'ready' }))
         }
-
       } else {
         if (fileStream) {
           fileStream.write(data)
@@ -95,18 +98,8 @@ function startWSServer(win) {
     })
   })
 
-  console.log('WS escuchando en', WS_PORT)
-}
-
-function startHTTPServer() {
-  const server = http.createServer((req, res) => {
-    if (req.url === '/ping') {
-      res.writeHead(200)
-      res.end('pong')
-    }
-  })
-  server.listen(HTTP_PORT, '0.0.0.0', () => {
-    console.log('HTTP escuchando en', HTTP_PORT)
+  server.listen(WS_PORT, '0.0.0.0', () => {
+    console.log('HTTP+WS escuchando en', WS_PORT)
   })
 }
 
@@ -149,16 +142,18 @@ function createWindow() {
 
   if (process.env.NODE_ENV === 'development') {
     win.loadURL('http://localhost:5173')
-    win.webContents.openDevTools()
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
-  startUDPServer(win)
-  startWSServer(win)
-  server.listen(HTTP_PORT, '0.0.0.0', () => {
-  console.log('HTTP escuchando en', HTTP_PORT)
-})
+  try {
+    startUDPServer(win)
+    console.log('UDP OK')
+    startWSServer(win)
+    console.log('WS OK')
+  } catch(e) {
+    console.error('ERROR EN SERVIDORES:', e)
+  }
 }
 
 app.whenReady().then(() => {
