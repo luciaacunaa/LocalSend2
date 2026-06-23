@@ -1,0 +1,59 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { font-family: sans-serif; background: #0f0f0f; color: #fff; }
+
+.app { display: flex; flex-direction: column; height: 100vh; padding: 20px; gap: 20px; }
+
+header { display: flex; justify-content: space-between; align-items: center; }
+header h1 { font-size: 1.5rem; }
+
+.status { font-size: 0.9rem; }
+
+.devices { flex: 1; }
+.devices h2 { margin-bottom: 12px; color: #aaa; font-size: 0.9rem; text-transform: uppercase; }
+
+.empty { color: #555; font-size: 0.9rem; }
+
+.device-card {
+  display: flex; align-items: center; gap: 12px;
+  background: #1a1a1a; border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 8px; cursor: pointer;
+}
+.device-card:hover { background: #252525; }
+.device-card div { display: flex; flex-direction: column; }
+.device-card small { color: #666; font-size: 0.8rem; }
+
+.dropzone {
+  border: 2px dashed #333; border-radius: 12px;
+  padding: 40px; text-align: center; color: #555;
+  transition: all 0.2s;
+}
+.dropzone:hover { border-color: #666; color: #999; }
+.device-card.selected { border: 1px solid #4ade80; background: #1a2e1a; }
+.dropzone.drag-over { border-color: #4ade80; color: #4ade80; background: #0f1f0f; }
+.dropzone.ready { border-color: #333; color: #aaa; }
+.offer-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 10;
+}
+.offer-box {
+  background: #1a1a1a; border-radius: 12px;
+  padding: 24px; text-align: center; display: flex;
+  flex-direction: column; gap: 12px;
+}
+.offer-actions { display: flex; gap: 12px; justify-content: center; }
+.accept { background: #4ade80; color: #000; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+.reject { background: #f87171; color: #000; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+
+.progress-bar-wrap {
+  background: #1a1a1a; border-radius: 8px;
+  height: 32px; position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.progress-bar {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: #4ade80; transition: width 0.3s;
+}
+.progress-bar-wrap span { position: relative; z-index: 1; font-size: 0.85rem; }
+
+.success { text-align: center; color: #4ade80; font-size: 0.9rem; }
