@@ -1,109 +1,114 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  FlatList, Alert, ActivityIndicator
-} from 'react-native'
-import * as DocumentPicker from 'expo-document-picker'
-import Zeroconf from 'react-native-zeroconf'
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  FlatList,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 
-const WS_PORT = 53318
-const zeroconf = new Zeroconf()
+const WS_PORT = 53318;
 
 export default function App() {
-  const [devices, setDevices] = useState([])
-  const [scanning, setScanning] = useState(false)
-  const [selectedDevice, setSelectedDevice] = useState(null)
-  const [progress, setProgress] = useState(null)
-  const wsRef = useRef(null)
+  const [devices, setDevices] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const wsRef = useRef(null);
 
   useEffect(() => {
-    zeroconf.on('resolved', (service) => {
-      const ip = service.addresses?.[0]
-      if (!ip) return
-      setDevices(prev => {
-        if (prev.find(d => d.ip === ip)) return prev
-        return [...prev, {
-          ip,
-          alias: service.txt?.alias || service.name,
-          deviceType: service.txt?.deviceType || 'desktop'
-        }]
-      })
-    })
+    startScanning();
+  }, []);
 
-    zeroconf.on('error', (err) => {
-      console.warn('Zeroconf error:', err)
-    })
+  const startScanning = async () => {
+    setScanning(true);
+    setDevices([]);
 
-    startScanning()
+    const bases = ["10.56.2", "10.56.4"];
+    const promises = [];
 
-    return () => {
-      zeroconf.stop()
-      zeroconf.removeAllListeners()
+    for (const base of bases) {
+      for (let i = 1; i <= 254; i++) {
+        const targetIP = `${base}.${i}`;
+        promises.push(
+          fetch(`http://${targetIP}:${WS_PORT}/ping`, {
+            signal: AbortSignal.timeout(500),
+          })
+            .then(() =>
+              setDevices((prev) => {
+                if (prev.find((d) => d.ip === targetIP)) return prev;
+                return [
+                  ...prev,
+                  { ip: targetIP, alias: targetIP, deviceType: "desktop" },
+                ];
+              }),
+            )
+            .catch(() => {}),
+        );
+      }
     }
-  }, [])
 
-  const startScanning = () => {
-    setScanning(true)
-    setDevices([])
-    zeroconf.stop()
-
-    setTimeout(() => {
-      zeroconf.scan('localsend', 'tcp', 'local.')
-      setTimeout(() => setScanning(false), 5000)
-    }, 300)
-  }
+    await Promise.all(promises);
+    setScanning(false);
+  };
 
   const sendFile = async () => {
-    if (!selectedDevice) { Alert.alert('Seleccioná un dispositivo'); return }
+    if (!selectedDevice) {
+      Alert.alert("Seleccioná un dispositivo");
+      return;
+    }
 
-    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true })
-    if (result.canceled) return
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return;
 
-    const file = result.assets[0]
-    const ws = new WebSocket(`ws://${selectedDevice.ip}:${WS_PORT}`)
-    wsRef.current = ws
+    const file = result.assets[0];
+    const ws = new WebSocket(`ws://${selectedDevice.ip}:${WS_PORT}`);
+    wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: 'file-offer',
-        fileName: file.name,
-        fileSize: file.size
-      }))
-    }
+      ws.send(
+        JSON.stringify({
+          type: "file-offer",
+          fileName: file.name,
+          fileSize: file.size,
+        }),
+      );
+    };
 
     ws.onmessage = async (e) => {
-      const msg = JSON.parse(e.data)
-
-      if (msg.type === 'ready') {
-        const response = await fetch(file.uri)
-        const buffer = await response.arrayBuffer()
-        const chunkSize = 64 * 1024
-        let offset = 0
-
+      const msg = JSON.parse(e.data);
+      if (msg.type === "ready") {
+        const response = await fetch(file.uri);
+        const buffer = await response.arrayBuffer();
+        const chunkSize = 64 * 1024;
+        let offset = 0;
         while (offset < buffer.byteLength) {
-          const chunk = buffer.slice(offset, offset + chunkSize)
-          ws.send(chunk)
-          offset += chunkSize
-          setProgress(Math.round((offset / buffer.byteLength) * 100))
+          const chunk = buffer.slice(offset, offset + chunkSize);
+          ws.send(chunk);
+          offset += chunkSize;
+          setProgress(Math.round((offset / buffer.byteLength) * 100));
         }
-
-        ws.close()
-        setProgress(null)
-        Alert.alert('✅ Enviado', `${file.name} enviado correctamente`)
+        ws.close();
+        setProgress(null);
+        Alert.alert("✅ Enviado", `${file.name} enviado correctamente`);
       }
-
-      if (msg.type === 'rejected') {
-        Alert.alert('❌ Rechazado', 'El receptor rechazó el archivo')
-        ws.close()
-        setProgress(null)
+      if (msg.type === "rejected") {
+        Alert.alert("❌ Rechazado", "El receptor rechazó el archivo");
+        ws.close();
+        setProgress(null);
       }
-    }
+    };
 
     ws.onerror = () => {
-      Alert.alert('Error', 'No se pudo conectar al dispositivo')
-      setProgress(null)
-    }
-  }
+      Alert.alert("Error", "No se pudo conectar al dispositivo");
+      setProgress(null);
+    };
+  };
 
   return (
     <View style={styles.container}>
@@ -127,7 +132,10 @@ export default function App() {
         keyExtractor={(_, i) => i.toString()}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[styles.device, selectedDevice?.ip === item.ip && styles.deviceSelected]}
+            style={[
+              styles.device,
+              selectedDevice?.ip === item.ip && styles.deviceSelected,
+            ]}
             onPress={() => setSelectedDevice(item)}
           >
             <Text style={styles.deviceIcon}>🖥️</Text>
@@ -138,7 +146,9 @@ export default function App() {
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          !scanning && <Text style={styles.empty}>No se encontraron dispositivos</Text>
+          !scanning && (
+            <Text style={styles.empty}>No se encontraron dispositivos</Text>
+          )
         }
       />
 
@@ -157,27 +167,79 @@ export default function App() {
         <Text style={styles.sendBtnText}>📂 Seleccionar y enviar archivo</Text>
       </TouchableOpacity>
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f', padding: 20, paddingTop: 60 },
-  title: { color: '#fff', fontSize: 28, fontWeight: 'bold', marginBottom: 20 },
-  subtitle: { color: '#aaa', fontSize: 12, textTransform: 'uppercase', marginVertical: 12 },
-  scanBtn: { backgroundColor: '#1a1a1a', padding: 12, borderRadius: 8, alignItems: 'center' },
-  scanBtnText: { color: '#4ade80', fontWeight: 'bold' },
-  scanningWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-  scanningText: { color: '#4ade80', fontSize: 13 },
-  device: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#1a1a1a', padding: 12, borderRadius: 8, marginBottom: 8 },
-  deviceSelected: { borderWidth: 1, borderColor: '#4ade80', backgroundColor: '#1a2e1a' },
+  container: {
+    flex: 1,
+    backgroundColor: "#0f0f0f",
+    padding: 20,
+    paddingTop: 60,
+  },
+  title: { color: "#fff", fontSize: 28, fontWeight: "bold", marginBottom: 20 },
+  subtitle: {
+    color: "#aaa",
+    fontSize: 12,
+    textTransform: "uppercase",
+    marginVertical: 12,
+  },
+  scanBtn: {
+    backgroundColor: "#1a1a1a",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  scanBtnText: { color: "#4ade80", fontWeight: "bold" },
+  scanningWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+  },
+  scanningText: { color: "#4ade80", fontSize: 13 },
+  device: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#1a1a1a",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  deviceSelected: {
+    borderWidth: 1,
+    borderColor: "#4ade80",
+    backgroundColor: "#1a2e1a",
+  },
   deviceIcon: { fontSize: 24 },
-  deviceName: { color: '#fff', fontWeight: 'bold' },
-  deviceIP: { color: '#666', fontSize: 12 },
-  empty: { color: '#555', textAlign: 'center', marginTop: 20 },
-  progressWrap: { height: 32, backgroundColor: '#1a1a1a', borderRadius: 8, overflow: 'hidden', marginBottom: 12, justifyContent: 'center', alignItems: 'center' },
-  progressBar: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#4ade80' },
-  progressText: { color: '#fff', fontSize: 12 },
-  sendBtn: { backgroundColor: '#4ade80', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 8 },
-  sendBtnDisabled: { backgroundColor: '#1a3a1a', opacity: 0.5 },
-  sendBtnText: { color: '#000', fontWeight: 'bold', fontSize: 16 }
-})
+  deviceName: { color: "#fff", fontWeight: "bold" },
+  deviceIP: { color: "#666", fontSize: 12 },
+  empty: { color: "#555", textAlign: "center", marginTop: 20 },
+  progressWrap: {
+    height: 32,
+    backgroundColor: "#1a1a1a",
+    borderRadius: 8,
+    overflow: "hidden",
+    marginBottom: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  progressBar: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "#4ade80",
+  },
+  progressText: { color: "#fff", fontSize: 12 },
+  sendBtn: {
+    backgroundColor: "#4ade80",
+    padding: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  sendBtnDisabled: { backgroundColor: "#4ade80", opacity: 0.5 },
+  sendBtnText: { color: "#000", fontWeight: "bold", fontSize: 16 },
+});

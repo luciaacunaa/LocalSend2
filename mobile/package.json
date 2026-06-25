@@ -19,7 +19,8 @@
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-netinfo": "^1.1.0",
-    "react-native-zeroconf": "^0.14.0"
+    "react-native-zeroconf": "^0.14.0",
+    "undefined": "@react-native-community/netinfo+"
   },
   "private": true
 }
