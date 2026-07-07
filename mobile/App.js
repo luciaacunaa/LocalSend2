@@ -73,10 +73,11 @@ export default function App() {
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: "file-offer", fileName: file.name, fileSize: file.size }));
     };
-
+ 
     ws.onmessage = async (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "ready") {
+    console.log('MENSAJE RECIBIDO:', e.data)
+    const msg = JSON.parse(e.data);
+    if (msg.type === "ready") {
         const response = await fetch(file.uri);
         const buffer = await response.arrayBuffer();
         const chunkSize = 64 * 1024;

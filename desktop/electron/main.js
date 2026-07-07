@@ -6,7 +6,6 @@ const fs = require('fs')
 const http = require('http')
 const { Bonjour } = require('bonjour-service')
 
-// @ts-ignore 
 const WS_PORT = 53318
 const bonjour = new Bonjour()
 
@@ -20,20 +19,30 @@ function getLocalIP() {
   return '127.0.0.1'
 }
 
-function startMDNS() {
+function startMDNS(win) {
   bonjour.publish({
     name: os.hostname(),
     type: 'localsend',
     port: WS_PORT,
     txt: { alias: os.hostname(), deviceType: 'desktop' }
   })
+
+  bonjour.find({ type: 'localsend' }, (service) => {
+    const ip = service.addresses?.find(a => a.includes('.'))
+    if (!ip) return
+    win.webContents.send('device-found', {
+      alias: service.txt?.alias || service.name,
+      ip,
+      deviceType: service.txt?.deviceType || 'desktop'
+    })
+  })
+
   console.log('mDNS publicado:', os.hostname())
 }
 
 function startWSServer(win) {
   const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
-
     if (req.url === '/ping') {
       res.writeHead(200)
       res.end('pong')
@@ -50,62 +59,45 @@ function startWSServer(win) {
     }
   })
 
-
   const wss = new WebSocketServer({ server })
 
   wss.on('connection', (ws) => {
     global.activeWS = ws
-    let fileStream = null
-    let fileInfo = null
-    let bytesReceived = 0
 
     ws.on('message', (data, isBinary) => {
       if (!isBinary) {
         const msg = JSON.parse(data.toString())
 
         if (msg.type === 'file-offer') {
-          fileInfo = msg
+          global.fileInfo = msg
           win.webContents.send('file-offer', msg)
         }
 
-        if (msg.type === 'accepted') {
-          let savePath = path.join(os.homedir(), 'Downloads', fileInfo.fileName)
-
-          if (fs.existsSync(savePath)) {
-            const ext = path.extname(fileInfo.fileName)
-            const base = path.basename(fileInfo.fileName, ext)
-            savePath = path.join(os.homedir(), 'Downloads', `${base}_${Date.now()}${ext}`)
-          }
-
-          fileStream = fs.createWriteStream(savePath)
-          bytesReceived = 0
-          ws.send(JSON.stringify({ type: 'ready' }))
-        }
       } else {
-        if (fileStream) {
-          fileStream.write(data)
-          bytesReceived += data.length
+        if (global.currentFileStream) {
+          global.currentFileStream.write(data)
+          global.bytesReceived = (global.bytesReceived || 0) + data.length
           win.webContents.send('file-progress', {
-            received: bytesReceived,
-            total: fileInfo?.fileSize
+            received: global.bytesReceived,
+            total: global.fileInfo?.fileSize
           })
         }
       }
     })
 
     ws.on('close', () => {
-      if (fileStream) {
-        fileStream.end()
+      if (global.currentFileStream) {
+        global.currentFileStream.end()
+        global.currentFileStream = null
         win.webContents.send('file-complete')
-        fileStream = null
       }
     })
 
     ws.on('error', (err) => {
       console.error('WS error:', err)
-      if (fileStream) {
-        fileStream.destroy()
-        fileStream = null
+      if (global.currentFileStream) {
+        global.currentFileStream.destroy()
+        global.currentFileStream = null
       }
     })
   })
@@ -116,7 +108,19 @@ function startWSServer(win) {
 }
 
 ipcMain.on('accept-file', () => {
-  global.activeWS?.send(JSON.stringify({ type: 'accepted' }))
+  console.log('Aceptando archivo, WS activo:', !!global.activeWS)
+  if (!global.fileInfo) return
+
+  let savePath = path.join(os.homedir(), 'Downloads', global.fileInfo.fileName)
+  if (fs.existsSync(savePath)) {
+    const ext = path.extname(global.fileInfo.fileName)
+    const base = path.basename(global.fileInfo.fileName, ext)
+    savePath = path.join(os.homedir(), 'Downloads', `${base}_${Date.now()}${ext}`)
+  }
+
+  global.currentFileStream = fs.createWriteStream(savePath)
+  global.bytesReceived = 0
+  global.activeWS?.send(JSON.stringify({ type: 'ready' }))
 })
 
 ipcMain.on('reject-file', () => {
@@ -165,7 +169,7 @@ function createWindow() {
   try {
     startWSServer(win)
     console.log('WS OK')
-    startMDNS()
+    startMDNS(win)
   } catch (e) {
     console.error('ERROR EN SERVIDORES:', e)
   }
