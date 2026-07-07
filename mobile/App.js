@@ -11,7 +11,9 @@ const WS_PORT = 53318;
 const fetchWithTimeout = (url, ms) => {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), ms)
-    fetch(url).then(resolve).catch(reject).finally(() => clearTimeout(timer))
+    fetch(url)
+      .then((res) => { clearTimeout(timer); resolve(res) })
+      .catch((err) => { clearTimeout(timer); reject(err) })
   })
 }
 
@@ -29,31 +31,32 @@ export default function App() {
   const startScanning = async () => {
     setScanning(true);
     setDevices([]);
-    console.log('Iniciando escaneo...')
 
-    const bases = ["10.56.2", "10.56.4", "10.56.5", "10.56.6", "10.56.7", "10.56.8", "10.56.9"];
+    const bases = ["10.56.2", "10.56.4", "10.56.5"];
+    const found = [];
     const promises = [];
 
     for (const base of bases) {
       for (let i = 1; i <= 254; i++) {
         const targetIP = `${base}.${i}`;
         promises.push(
-          fetchWithTimeout(`http://${targetIP}:${WS_PORT}/ping`, 500)
-            .then(() => {
-              console.log('ENCONTRADO:', targetIP)
-              setDevices((prev) => {
-                if (prev.find((d) => d.ip === targetIP)) return prev;
-                return [...prev, { ip: targetIP, alias: targetIP, deviceType: "desktop" }];
-              });
+          fetchWithTimeout(`http://${targetIP}:${WS_PORT}/ping`, 800)
+            .then((res) => {
+              console.log('RESPUESTA:', targetIP, res.status)
+              if (!found.find(d => d.ip === targetIP)) {
+                found.push({ ip: targetIP, alias: targetIP, deviceType: "desktop" })
+              }
             })
-            .catch(() => {})
+            .catch((err) => {
+              if (err.message !== 'timeout') console.log('ERROR:', targetIP, err.message)
+            })
         );
       }
     }
 
-    console.log(`Escaneando ${promises.length} IPs...`)
     await Promise.all(promises);
-    console.log('Escaneo completo')
+    console.log('Escaneo completo, encontrados:', found.length)
+    setDevices(found);
     setScanning(false);
   };
 
