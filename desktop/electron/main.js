@@ -111,11 +111,11 @@ ipcMain.on('accept-file', () => {
   console.log('Aceptando archivo, WS activo:', !!global.activeWS)
   if (!global.fileInfo) return
 
-  let savePath = path.join(os.homedir(), 'Downloads', global.fileInfo.fileName)
+  let savePath = path.join(os.homedir(), 'Descargas', global.fileInfo.fileName)
   if (fs.existsSync(savePath)) {
     const ext = path.extname(global.fileInfo.fileName)
     const base = path.basename(global.fileInfo.fileName, ext)
-    savePath = path.join(os.homedir(), 'Downloads', `${base}_${Date.now()}${ext}`)
+    savePath = path.join(os.homedir(), 'Descargas', `${base}_${Date.now()}${ext}`)
   }
 
   global.currentFileStream = fs.createWriteStream(savePath)
