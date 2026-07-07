@@ -6,6 +6,7 @@ const fs = require('fs')
 const http = require('http')
 const { Bonjour } = require('bonjour-service')
 
+// @ts-ignore 
 const WS_PORT = 53318
 const bonjour = new Bonjour()
 
@@ -48,6 +49,7 @@ function startWSServer(win) {
       res.end()
     }
   })
+
 
   const wss = new WebSocketServer({ server })
 

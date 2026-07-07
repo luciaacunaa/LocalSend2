@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  FlatList,
-  Alert,
-  ActivityIndicator,
+  View, Text, TouchableOpacity, FlatList,
+  Alert, ActivityIndicator,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
+import { styles } from "./styles/main";
 
 const WS_PORT = 53318;
+
+const fetchWithTimeout = (url, ms) => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms)
+    fetch(url).then(resolve).catch(reject).finally(() => clearTimeout(timer))
+  })
+}
 
 export default function App() {
   const [devices, setDevices] = useState([]);
@@ -26,44 +29,38 @@ export default function App() {
   const startScanning = async () => {
     setScanning(true);
     setDevices([]);
+    console.log('Iniciando escaneo...')
 
-    const bases = ["10.56.2", "10.56.4"];
+    const bases = ["10.56.2", "10.56.4", "10.56.5", "10.56.6", "10.56.7", "10.56.8", "10.56.9"];
     const promises = [];
 
     for (const base of bases) {
       for (let i = 1; i <= 254; i++) {
         const targetIP = `${base}.${i}`;
         promises.push(
-          fetch(`http://${targetIP}:${WS_PORT}/ping`, {
-            signal: AbortSignal.timeout(500),
-          })
-            .then(() =>
+          fetchWithTimeout(`http://${targetIP}:${WS_PORT}/ping`, 500)
+            .then(() => {
+              console.log('ENCONTRADO:', targetIP)
               setDevices((prev) => {
                 if (prev.find((d) => d.ip === targetIP)) return prev;
-                return [
-                  ...prev,
-                  { ip: targetIP, alias: targetIP, deviceType: "desktop" },
-                ];
-              }),
-            )
-            .catch(() => {}),
+                return [...prev, { ip: targetIP, alias: targetIP, deviceType: "desktop" }];
+              });
+            })
+            .catch(() => {})
         );
       }
     }
 
+    console.log(`Escaneando ${promises.length} IPs...`)
     await Promise.all(promises);
+    console.log('Escaneo completo')
     setScanning(false);
   };
 
   const sendFile = async () => {
-    if (!selectedDevice) {
-      Alert.alert("Seleccioná un dispositivo");
-      return;
-    }
+    if (!selectedDevice) { Alert.alert("Seleccioná un dispositivo"); return; }
 
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-    });
+    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
     if (result.canceled) return;
 
     const file = result.assets[0];
@@ -71,13 +68,7 @@ export default function App() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          type: "file-offer",
-          fileName: file.name,
-          fileSize: file.size,
-        }),
-      );
+      ws.send(JSON.stringify({ type: "file-offer", fileName: file.name, fileSize: file.size }));
     };
 
     ws.onmessage = async (e) => {
@@ -132,10 +123,7 @@ export default function App() {
         keyExtractor={(_, i) => i.toString()}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[
-              styles.device,
-              selectedDevice?.ip === item.ip && styles.deviceSelected,
-            ]}
+            style={[styles.device, selectedDevice?.ip === item.ip && styles.deviceSelected]}
             onPress={() => setSelectedDevice(item)}
           >
             <Text style={styles.deviceIcon}>🖥️</Text>
@@ -146,9 +134,7 @@ export default function App() {
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          !scanning && (
-            <Text style={styles.empty}>No se encontraron dispositivos</Text>
-          )
+          !scanning && <Text style={styles.empty}>No se encontraron dispositivos</Text>
         }
       />
 
@@ -169,77 +155,3 @@ export default function App() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0f0f0f",
-    padding: 20,
-    paddingTop: 60,
-  },
-  title: { color: "#fff", fontSize: 28, fontWeight: "bold", marginBottom: 20 },
-  subtitle: {
-    color: "#aaa",
-    fontSize: 12,
-    textTransform: "uppercase",
-    marginVertical: 12,
-  },
-  scanBtn: {
-    backgroundColor: "#1a1a1a",
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  scanBtnText: { color: "#4ade80", fontWeight: "bold" },
-  scanningWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 12,
-  },
-  scanningText: { color: "#4ade80", fontSize: 13 },
-  device: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#1a1a1a",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  deviceSelected: {
-    borderWidth: 1,
-    borderColor: "#4ade80",
-    backgroundColor: "#1a2e1a",
-  },
-  deviceIcon: { fontSize: 24 },
-  deviceName: { color: "#fff", fontWeight: "bold" },
-  deviceIP: { color: "#666", fontSize: 12 },
-  empty: { color: "#555", textAlign: "center", marginTop: 20 },
-  progressWrap: {
-    height: 32,
-    backgroundColor: "#1a1a1a",
-    borderRadius: 8,
-    overflow: "hidden",
-    marginBottom: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  progressBar: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: "#4ade80",
-  },
-  progressText: { color: "#fff", fontSize: 12 },
-  sendBtn: {
-    backgroundColor: "#4ade80",
-    padding: 16,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  sendBtnDisabled: { backgroundColor: "#4ade80", opacity: 0.5 },
-  sendBtnText: { color: "#000", fontWeight: "bold", fontSize: 16 },
-});
